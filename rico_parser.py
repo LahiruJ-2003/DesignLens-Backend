@@ -7,35 +7,35 @@ OUTPUT_FILE = "data/rico_dataset.json"
 
 def calculate_heuristic_score(elements):
     """
-    Improved heuristic scoring for real-world academic rigor.
-    Penalizes overlaps, excessive clutter, and tiny targets.
+    hacky scoring thing
+    punishes overlaps and tiny stuff
     """
     score = 95.0
     
-    # 1. Penalty for Overlaps (Clutter)
+    # 1. punish overlaps
     overlap_penalty = 0
     for i in range(len(elements)):
         for j in range(i + 1, len(elements)):
             e1, e2 = elements[i], elements[j]
-            # Simple intersection check
+            # check if they hit each other
             if not (e1["x"] + e1["width"] < e2["x"] or 
                     e2["x"] + e2["width"] < e1["x"] or 
                     e1["y"] + e1["height"] < e2["y"] or 
                     e2["y"] + e2["height"] < e1["y"]):
-                overlap_penalty += 3.0 # Heavy penalty for each overlap
+                overlap_penalty += 3.0 # big penalty
     
-    score -= min(35.0, overlap_penalty) # Cap overlap penalty
+    score -= min(35.0, overlap_penalty) # cap it
 
-    # 2. Penalty for Tiny Targets
+    # 2. punish small stuff
     for el in elements:
         if el["width"] < 44 or el["height"] < 44:
             score -= 1.5
             
-    # 3. Penalty for "Too Many Elements" (Information Overload)
+    # 3. punish having too much crap on screen
     if len(elements) > 25:
         score -= (len(elements) - 25) * 0.5
 
-    # Add slight random noise
+    # add some randomness lol
     score += random.uniform(-2, 2)
     
     return max(15.0, min(100.0, score))
@@ -56,8 +56,7 @@ def parse_rico():
         print("No JSON files found in data/rico!. Terminating.")
         return
         
-    # Process a manageable batch for the final year project demo 
-    # (e.g., 2500 max to keep CPU training times reasonable under an hour)
+    # process only 2500 so my laptop doesnt die
     max_samples = min(2500, len(json_files))
     
     for filename in json_files[:max_samples]:
@@ -68,7 +67,7 @@ def parse_rico():
                 
             elements = []
             
-            # Recursive function to find leaf nodes with Android UI 'bounds'
+            # recursive thing to find the bounds
             def extract_nodes(node):
                 if "bounds" in node and len(node["bounds"]) == 4:
                     x1, y1, x2, y2 = node["bounds"]
@@ -83,7 +82,7 @@ def parse_rico():
                             "y": float(y1),
                             "width": float(w),
                             "height": float(h),
-                            # Rico JSON doesn't provide perfect hex colors, fallback simulation:
+                            # rico doesnt give colors so just make up some bs:
                             "fill": f"#{random.randint(50, 200):02x}{random.randint(50, 200):02x}{random.randint(50, 200):02x}"
                         })
                 
@@ -91,7 +90,7 @@ def parse_rico():
                     for child in node["children"]:
                         extract_nodes(child)
             
-            # Try to grab the root view hierarchy tree
+            # grab the root view
             root = data.get("activity", {}).get("root", data)
             extract_nodes(root)
             
@@ -104,7 +103,7 @@ def parse_rico():
                 dataset.append(sample)
                 
         except Exception as e:
-            # Skip corrupted Rico files
+            # skip the broken ones
             continue
             
     print(f"Successfully processed {len(dataset)} valid real-world UI layouts.")

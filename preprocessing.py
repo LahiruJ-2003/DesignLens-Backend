@@ -18,13 +18,13 @@ def extract_color_features(hex_color: str):
 
 def payload_to_graph(payload: DesignPayload) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Transforms the JSON payload representing the UI Canvas into PyTorch Tensors.
-    Returns elements as Node Features (x) and adjacency mapping as (edge_index)
+    convert json stuff to pytorch tensors
+    returns the nodes and edges
     """
     node_features = []
     edges = []
     
-    # 1. Extract Node Features
+    # get node stuff
     for el in payload.elements:
         rgb = extract_color_features(el.fill)
         features = [
@@ -32,22 +32,22 @@ def payload_to_graph(payload: DesignPayload) -> Tuple[torch.Tensor, torch.Tensor
             el.y / 1000.0,
             el.width / 1000.0,
             el.height / 1000.0,
-            rgb[0], rgb[1]  # Using Red & Green normalized values as simple visual proxy
+            rgb[0], rgb[1]  # just using red and green as a quick hack
         ]
         node_features.append(features)
         
     x = torch.tensor(node_features, dtype=torch.float)
     
-    # 2. Extract Edges (Connect if spatially close to each other)
+    # 2. connect stuff if they are close
     for i, el1 in enumerate(payload.elements):
         for j, el2 in enumerate(payload.elements):
             if i != j:
                 dist = compute_distance(el1, el2)
-                if dist < 300: # Distance threshold for spatial relationship Edge
+                if dist < 300: # max distance
                     edges.append([i, j])
                     
     if len(edges) == 0:
-        # Add self loops if no edges exist to prevent graph computation errors
+        # add self loops so graph doesnt crash
         for i in range(len(payload.elements)):
             edges.append([i, i])
             
