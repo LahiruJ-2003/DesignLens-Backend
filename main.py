@@ -1,3 +1,6 @@
+# Hey! This is the main entry point for the backend API.
+# It sets up FastAPI and handles incoming requests from the frontend design tool.
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from schemas import DesignPayload, UXScoreResponse
@@ -18,6 +21,7 @@ app.add_middleware(
 )
 
 # Global Model Initialization
+# Loading the model here so we don't have to reload it for every single API request (which would be super slow!)
 model = ViGTModel(node_features=6, hidden_dim=64)
 weights_path = "vigt_model_weights.pth"
 
@@ -34,8 +38,12 @@ def read_root():
 
 @app.post("/api/analyze-ui", response_model=UXScoreResponse)
 async def analyze_ui(payload: DesignPayload):
+    """
+    Main endpoint that takes the canvas JSON from the frontend and runs it through the AI model.
+    """
     try:
         # Handle entirely empty canvas gracefully to prevent PyTorch zero-dimensional tensor crash
+        # (Basically, if there's nothing on the screen, don't break the whole app)
         if not payload.elements:
             return UXScoreResponse(
                 overall_score=100.0,
@@ -44,10 +52,12 @@ async def analyze_ui(payload: DesignPayload):
             )
             
         # Preprocess UI JSON into PyTorch Graph
+        # This converts the raw frontend data into node features and edges that our Graph Neural Network can actually read
         x, edge_index = payload_to_graph(payload)
         batch = torch.zeros(x.size(0), dtype=torch.long)
         
         # Inference using Vision-Graph Transformer
+        # Running the data through the model without calculating gradients (saves memory during inference)
         with torch.no_grad():
             score_tensor = model(x, edge_index, batch)
             final_score = score_tensor.item()
