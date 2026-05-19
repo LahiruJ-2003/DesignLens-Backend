@@ -1,30 +1,32 @@
 import json
 import os
-# pyrefly: ignore [missing-import]
 import torch
-# pyrefly: ignore [missing-import]
 from vigt_model import ViGTModel
 from schemas import DesignPayload, CanvasElement
 from preprocessing import payload_to_graph
 import math
 import time
 
-# This function builds a fake 'payload' object from our dataset dictionaries
-# so we can feed it into the same pipeline that the real API uses.
+# This script evaluates how accurate the trained model is.
+# Run it after training to see the MAE, RMSE, and classification accuracy.
+# I used the last 20% of the dataset as the test set (the model never saw these during training).
+
 def create_mock_payload(data_dict):
+    # Same helper as in train.py — converts a dataset dictionary into
+    # the DesignPayload format that the preprocessing pipeline expects
     elements = []
     for e in data_dict.get("elements", []):
         elements.append(CanvasElement(**e))
     return DesignPayload(elements=elements)
 
 def load_data():
+    # Load whichever dataset is available (RICO takes priority over synthetic)
     if os.path.exists("data/rico_dataset.json"):
         with open("data/rico_dataset.json", "r") as f:
             return json.load(f)
     with open("data/synthetic_dataset.json", "r") as f:
         return json.load(f)
 
-# Main script to test how well the model is actually performing on unseen data
 def evaluate_model():
     print("="*50)
     print("   ViGT Model Evaluation & Accuracy Report")
@@ -36,8 +38,8 @@ def evaluate_model():
         print(f"Failed to load dataset: {e}")
         return
 
-    # Splitting the data: we use the last 20% as our test set
-    # (simulating a basic train/test split here for evaluation)
+    # Take the last 20% of samples as the test set
+    # These were not used during training so this gives an honest accuracy reading
     test_size = max(1, int(len(dataset) * 0.2))
     test_data = dataset[-test_size:]
     print(f"Test samples loaded: {len(test_data)}")
@@ -48,34 +50,37 @@ def evaluate_model():
         print("Loaded trained weights: vigt_model_weights.pth")
     else:
         print("Warning: No trained weights found.")
-    
+
     model.eval()
-    
+
     total_l1_error = 0
     total_squared_error = 0
     inference_times = []
+
+    # I use a threshold of 70 to convert the regression score into a binary
+    # good/bad classification. This lets me report classification accuracy
+    # alongside the regression metrics.
     classification_threshold = 70.0
     tp = tn = fp = fn = 0
-    
-    print("\nRunning Inference on Test Set...")
-    with torch.no_grad(): # Don't track gradients since we're just evaluating (saves RAM)
+
+    print("\nRunning inference on test set...")
+    with torch.no_grad():
         for sample in test_data:
-            # Recreate the frontend request format
             payload = create_mock_payload(sample)
             x, edge_index = payload_to_graph(payload)
-            target = sample.get("target_score", 50.0) # default fallback
+            target = sample.get("target_score", 50.0)
             batch = torch.zeros(x.size(0), dtype=torch.long)
-            
+
+            # Measure how long inference takes per design
             start_time = time.time()
             pred_score = model(x, edge_index, batch).item()
             inference_times.append(time.time() - start_time)
-            
+
             error = abs(pred_score - target)
             total_l1_error += error
             total_squared_error += error ** 2
 
-            # Here we threshold the regression score (0-100) into a pass/fail classification
-            # e.g., if it's over 70, it's considered a "Good Design" (1), else "Bad Design" (0)
+            # Check if the model's good/bad decision matches the true label
             pred_label = 1 if pred_score >= classification_threshold else 0
             true_label = 1 if target >= classification_threshold else 0
             if pred_label == 1 and true_label == 1:
@@ -87,14 +92,15 @@ def evaluate_model():
             else:
                 tn += 1
 
+    # MAE tells us the average error in score points (lower = better)
     mae = total_l1_error / len(test_data)
+    # RMSE penalises large errors more heavily than MAE
     rmse = math.sqrt(total_squared_error / len(test_data))
-    avg_inference = (sum(inference_times) / len(inference_times)) * 1000 # in ms
-    
-    # Regression-style score accuracy
+    avg_inference = (sum(inference_times) / len(inference_times)) * 1000
+
+    # A simple way to express regression accuracy as a percentage
     pseudo_regression_accuracy = max(0, 100 - mae)
 
-    # Classification-style metrics from thresholding the regression output
     classification_accuracy = 100.0 * (tp + tn) / len(test_data)
     precision = tp / (tp + fp) if tp + fp > 0 else 0.0
     recall = tp / (tp + fn) if tp + fn > 0 else 0.0

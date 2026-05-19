@@ -2,11 +2,11 @@ import torch
 from schemas import DesignPayload
 from typing import Tuple
 
-# Maps every element type the system can encounter to a 0-1 value.
-# Groups: 0=rect/button, 0.125=circle, 0.25=text, 0.375=image,
-#         0.5=line,       0.625=frame/container, 0.75=triangle, 1.0=star/arrow/other
+# Each element type is mapped to a number between 0 and 1
+# so the neural network can understand what kind of element it is.
+# I grouped similar types together (buttons/rectangles = 0.0, text = 0.25, images = 0.375, etc.)
 TYPE_MAP: dict[str, float] = {
-    # Frontend app types
+    # Types used in the frontend canvas
     'rectangle': 0.0,   'rect': 0.0,
     'circle': 0.125,    'ellipse': 0.125,
     'text': 0.25,       'Text': 0.25,
@@ -16,13 +16,13 @@ TYPE_MAP: dict[str, float] = {
     'triangle': 0.75,
     'star': 0.875,
     'arrow': 1.0,
-    # Synthetic dataset legacy types
+    # Types used in the synthetic dataset
     'Shape': 0.0,
-    # RICO Android class names (already split on '.' by the parser)
+    # Android class names from the RICO dataset
     'Button': 0.0,      'ImageButton': 0.0,   'CheckBox': 0.0,
     'EditText': 0.0,    'Switch': 0.0,        'ToggleButton': 0.0,
     'RadioButton': 0.125,
-    'TextView': 0.25,   'EditText': 0.25,
+    'TextView': 0.25,
     'ImageView': 0.375,
     'View': 0.5,        'ProgressBar': 0.5,   'SeekBar': 0.5,
     'LinearLayout': 0.625,  'RelativeLayout': 0.625, 'FrameLayout': 0.625,
@@ -32,6 +32,8 @@ TYPE_MAP: dict[str, float] = {
 
 
 def compute_distance(el1, el2) -> float:
+    # Calculate the distance between the centre points of two elements
+    # Used to decide whether two elements should be connected by an edge in the graph
     cx1 = el1.x + el1.width / 2
     cy1 = el1.y + el1.height / 2
     cx2 = el2.x + el2.width / 2
@@ -40,7 +42,8 @@ def compute_distance(el1, el2) -> float:
 
 
 def extract_color_features(hex_color: str) -> list[float]:
-    """Return [R, G, B] normalised to 0-1. Falls back to [0, 0, 0] on bad input."""
+    # Convert a hex colour like #3b82f6 into three numbers [R, G, B] between 0 and 1
+    # The model uses colour as part of the node features to detect palette consistency
     if not hex_color or hex_color.startswith('rgb') or hex_color.startswith('var'):
         return [0.0, 0.0, 0.0]
     hex_color = hex_color.lstrip('#')
@@ -53,18 +56,16 @@ def extract_color_features(hex_color: str) -> list[float]:
 
 
 def payload_to_graph(payload: DesignPayload) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Convert a DesignPayload into PyTorch tensors (node features, edge index).
+    # This is the main preprocessing function.
+    # It takes the list of UI elements from the frontend and converts them
+    # into a graph format that PyTorch Geometric can process.
+    #
+    # Each element becomes a NODE with 8 features:
+    #   [x/fw, y/fh, w/fw, h/fh, R, G, B, type]
+    #
+    # I divide positions by the frame size (not a fixed 1000) so that
+    # a centred element always has x=0.5 regardless of screen size.
 
-    Node feature vector (8 values per element):
-      [x/fw, y/fh, w/fw, h/fh, R, G, B, type_encoded]
-
-    Coordinates are normalised by the frame dimensions so the model learns
-    position semantics (e.g. 0.5 = centred) rather than raw pixel values.
-    Previously coordinates were divided by a fixed 1000 which made a centred
-    element on a 390px phone look the same as a left-edge element on a 1440px
-    desktop canvas.
-    """
     fw = payload.frame_width or 390.0
     fh = payload.frame_height or 844.0
 
@@ -74,22 +75,22 @@ def payload_to_graph(payload: DesignPayload) -> Tuple[torch.Tensor, torch.Tensor
         type_val = TYPE_MAP.get(el.type, 0.0)
 
         features = [
-            el.x / fw,          # relative x position  (was x/1000)
-            el.y / fh,          # relative y position  (was y/1000)
-            el.width / fw,      # relative width       (was w/1000)
-            el.height / fh,     # relative height      (was h/1000)
-            rgb[0],             # R
-            rgb[1],             # G
-            rgb[2],             # B  (was dropped before — "quick hack")
-            type_val,           # element type encoding
+            el.x / fw,       # normalised x position (0 = left edge, 1 = right edge)
+            el.y / fh,       # normalised y position (0 = top, 1 = bottom)
+            el.width / fw,   # normalised width
+            el.height / fh,  # normalised height
+            rgb[0],          # red channel
+            rgb[1],          # green channel
+            rgb[2],          # blue channel
+            type_val,        # element type as a number
         ]
         node_features.append(features)
 
     x = torch.tensor(node_features, dtype=torch.float)
 
-    # Edge threshold: 30% of frame width so spatial proximity is relative to
-    # screen size. Previously fixed at 300px which connected nearly every element
-    # on a 390px phone screen but barely anything on a 1440px desktop.
+    # Two elements get connected by an EDGE if they are close to each other.
+    # I use 30% of the frame width as the threshold so it scales with screen size.
+    # Close elements affect each other's score in the graph attention network.
     edge_threshold = fw * 0.30
     edges = []
     for i, el1 in enumerate(payload.elements):
@@ -97,6 +98,8 @@ def payload_to_graph(payload: DesignPayload) -> Tuple[torch.Tensor, torch.Tensor
             if i != j and compute_distance(el1, el2) < edge_threshold:
                 edges.append([i, j])
 
+    # If no edges were created (single element or everything too far apart),
+    # add self-loops so the model still has something to process
     if len(edges) == 0:
         for i in range(len(payload.elements)):
             edges.append([i, i])

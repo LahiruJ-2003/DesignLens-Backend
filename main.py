@@ -1,6 +1,3 @@
-# Hey! This is the main entry point for the backend API.
-# It sets up FastAPI and handles incoming requests from the frontend design tool.
-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from schemas import DesignPayload, UXScoreResponse
@@ -12,6 +9,7 @@ from vigt_model import ViGTModel
 
 app = FastAPI(title="Design Lens AI Backend", version="1.0")
 
+# Allow the Next.js frontend to call this API from a different port
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,8 +18,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global Model Initialization
-# Loading the model here so we don't have to reload it for every single API request (which would be super slow!)
+# Load the model once when the server starts so every request doesn't
+# have to reload it from disk (that would be very slow)
 model = ViGTModel(node_features=8, hidden_dim=64)
 weights_path = "vigt_model_weights.pth"
 
@@ -38,30 +36,28 @@ def read_root():
 
 @app.post("/api/analyze-ui", response_model=UXScoreResponse)
 async def analyze_ui(payload: DesignPayload):
-    """
-    Main endpoint that takes the canvas JSON from the frontend and runs it through the AI model.
-    """
+    # Main endpoint: receives canvas elements from the frontend,
+    # runs them through the ViGT model, and returns a quality score
     try:
-        # Handle entirely empty canvas gracefully to prevent PyTorch zero-dimensional tensor crash
-        # (Basically, if there's nothing on the screen, don't break the whole app)
+        # If the canvas is empty, return early to avoid a PyTorch crash
+        # (the model can't process a graph with zero nodes)
         if not payload.elements:
             return UXScoreResponse(
                 overall_score=100.0,
                 issues=[{"severity": "info", "message": "Canvas is empty. Add shapes or text to begin AI analysis.", "id": "msg_empty", "elementIds": []}],
                 suggestions=[]
             )
-            
-        # Preprocess UI JSON into PyTorch Graph
-        # This converts the raw frontend data into node features and edges that our Graph Neural Network can actually read
+
+        # Convert the list of UI elements into a graph (nodes + edges)
         x, edge_index = payload_to_graph(payload)
         batch = torch.zeros(x.size(0), dtype=torch.long)
-        
-        # Inference using Vision-Graph Transformer
-        # Running the data through the model without calculating gradients (saves memory during inference)
+
+        # Run the graph through the model to get the spatial quality score
+        # torch.no_grad() speeds this up since we don't need gradients during inference
         with torch.no_grad():
             score_tensor = model(x, edge_index, batch)
             final_score = score_tensor.item()
-            
+
         return UXScoreResponse(
             overall_score=final_score,
             issues=[],
