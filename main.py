@@ -22,7 +22,7 @@ app.add_middleware(
 
 # Global Model Initialization
 # Loading the model here so we don't have to reload it for every single API request (which would be super slow!)
-model = ViGTModel(node_features=6, hidden_dim=64)
+model = ViGTModel(node_features=8, hidden_dim=64)
 weights_path = "vigt_model_weights.pth"
 
 if os.path.exists(weights_path):
@@ -64,7 +64,7 @@ async def analyze_ui(payload: DesignPayload):
             
         return UXScoreResponse(
             overall_score=final_score,
-            issues=[{"severity": "info", "message": "Graph analysis successfully mapped architecture logic", "id": "msg_01", "elementIds": []}],
+            issues=[],
             suggestions=[]
         )
     except Exception as e:

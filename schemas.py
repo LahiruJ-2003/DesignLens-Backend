@@ -16,6 +16,8 @@ class CanvasElement(BaseModel):
 
 class DesignPayload(BaseModel):
     elements: List[CanvasElement]
+    frame_width: Optional[float] = 390.0   # defaults to iPhone 14 width
+    frame_height: Optional[float] = 844.0  # defaults to iPhone 14 height
 
 class UXScoreResponse(BaseModel):
     overall_score: float

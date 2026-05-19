@@ -3,7 +3,6 @@ import os
 # pyrefly: ignore [missing-import]
 import torch
 # pyrefly: ignore [missing-import]
-import torch.nn as nn
 from vigt_model import ViGTModel
 from schemas import DesignPayload, CanvasElement
 from preprocessing import payload_to_graph
@@ -43,7 +42,7 @@ def evaluate_model():
     test_data = dataset[-test_size:]
     print(f"Test samples loaded: {len(test_data)}")
 
-    model = ViGTModel(node_features=6, hidden_dim=64)
+    model = ViGTModel(node_features=8, hidden_dim=64)
     if os.path.exists("vigt_model_weights.pth"):
         model.load_state_dict(torch.load("vigt_model_weights.pth"))
         print("Loaded trained weights: vigt_model_weights.pth")
@@ -106,8 +105,15 @@ def evaluate_model():
     print("="*50)
     print(f"Mean Absolute Error (MAE):          {mae:.2f} points")
     print(f"Root Mean Squared Error (RMSE):     {rmse:.2f} points")
-    print(f"Model Prediction Accuracy:          {pseudo_regression_accuracy:.2f}%")
+    print(f"Regression Accuracy (100 - MAE):    {pseudo_regression_accuracy:.2f}%")
     print(f"Inference Time (avg):               {avg_inference:.2f} ms/graph")
+    print("="*50)
+    print("   CLASSIFICATION METRICS (threshold = 70)")
+    print("="*50)
+    print(f"Classification Accuracy:            {classification_accuracy:.2f}%")
+    print(f"Precision:                          {precision:.4f}")
+    print(f"Recall:                             {recall:.4f}")
+    print(f"F1 Score:                           {f1_score:.4f}")
     print("="*50)
 
 if __name__ == "__main__":

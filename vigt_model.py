@@ -7,7 +7,7 @@ class ViGTModel(nn.Module):
     vig model tbh
     figures out which ui things are close to each other using graph networks or smth
     """
-    def __init__(self, node_features=6, hidden_dim=64):
+    def __init__(self, node_features=8, hidden_dim=64):
         super(ViGTModel, self).__init__()
         
         # graph layers

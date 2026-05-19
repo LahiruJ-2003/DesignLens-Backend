@@ -31,7 +31,7 @@ def train_model():
         return
 
     # Initialize Model and Optimizer
-    model = ViGTModel(node_features=6, hidden_dim=64)
+    model = ViGTModel(node_features=8, hidden_dim=64)
     optimizer = optim.Adam(model.parameters(), lr=0.005)
     criterion = nn.MSELoss()
     
